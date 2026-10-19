@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0d0f14">
+  <title>FitLog Lite</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <h1 id="app-title">FitLog Lite</h1>
+  </header>
+
+  <main id="main">
+
+    <!-- ============ VISTA: ENTRENAR ============ -->
+    <section id="view-entrenar" class="view active" data-view="entrenar">
+
+      <!-- Panel: iniciar entrenamiento -->
+      <div id="panel-iniciar">
+        <p class="hint">Selecciona una rutina o comienza desde cero.</p>
+        <div id="lista-rutinas-inicio" class="card-list"></div>
+        <button id="btn-iniciar-vacio" class="btn btn-primary">+ Entrenamiento en blanco</button>
+      </div>
+
+      <!-- Panel: sesión activa -->
+      <div id="panel-activo" class="hidden">
+        <div class="session-meta">
+          <span id="activo-fecha" class="chip"></span>
+          <span id="activo-tiempo" class="chip chip-accent">0 min</span>
+        </div>
+        <div id="lista-ejercicios-activos" class="card-list"></div>
+        <button id="btn-agregar-ejercicio-activo" class="btn btn-secondary">+ Agregar ejercicio</button>
+        <button id="btn-finalizar" class="btn btn-danger">Finalizar entrenamiento</button>
+      </div>
+
+    </section>
+
+    <!-- ============ VISTA: EJERCICIOS ============ -->
+    <section id="view-ejercicios" class="view" data-view="ejercicios">
+      <form id="form-ejercicio" class="form-row">
+        <input type="text" id="input-nombre-ejercicio" class="input" placeholder="Nombre del ejercicio (obligatorio)" autocomplete="off">
+        <input type="text" id="input-grupo-muscular" class="input" placeholder="Grupo muscular (opcional)" autocomplete="off">
+        <button type="submit" class="btn btn-primary">Agregar</button>
+      </form>
+      <p id="error-ejercicio" class="error hidden"></p>
+      <div id="lista-ejercicios" class="card-list"></div>
+    </section>
+
+    <!-- ============ VISTA: RUTINAS ============ -->
+    <section id="view-rutinas" class="view" data-view="rutinas">
+      <div class="form-row">
+        <input type="text" id="input-nombre-rutina" class="input" placeholder="Nombre de la rutina (obligatorio)" autocomplete="off">
+      </div>
+      <p class="hint">Selecciona los ejercicios en el orden deseado:</p>
+      <div id="selector-ejercicios-rutina" class="check-list"></div>
+      <button id="btn-crear-rutina" class="btn btn-primary">Crear rutina</button>
+      <p id="error-rutina" class="error hidden"></p>
+      <div id="lista-rutinas" class="card-list"></div>
+    </section>
+
+    <!-- ============ VISTA: HISTORIAL ============ -->
+    <section id="view-historial" class="view" data-view="historial">
+
+      <!-- Lista de entrenamientos -->
+      <div id="panel-historial-lista">
+        <div id="lista-historial" class="card-list"></div>
+      </div>
+
+      <!-- Detalle de entrenamiento -->
+      <div id="panel-historial-detalle" class="hidden">
+        <button id="btn-volver-historial" class="btn btn-ghost">← Volver al historial</button>
+        <div id="detalle-entrenamiento"></div>
+      </div>
+
+    </section>
+
+    <!-- ============ VISTA: AJUSTES ============ -->
+    <section id="view-ajustes" class="view" data-view="ajustes">
+      <div class="card">
+        <h2>Respaldo de datos</h2>
+        <p class="hint">Exporta todos tus datos (ejercicios, rutinas e historial) a un archivo .json, o/restáuralos desde un respaldo.</p>
+        <button id="btn-exportar" class="btn btn-primary">Exportar datos (.json)</button>
+        <button id="btn-importar" class="btn btn-secondary">Importar datos (.json)</button>
+        <input type="file" id="input-importar" accept="application/json,.json" class="hidden">
+      </div>
+      <div class="card">
+        <h2>Datos de ejemplo</h2>
+        <p class="hint">Restaura los datos por defecto (3 ejercicios básicos y 1 rutina de ejemplo). Se perderán tus datos actuales.</p>
+        <button id="btn-reset" class="btn btn-danger">Restablecer datos</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============ TAB BAR ============ -->
+  <nav class="tabbar">
+    <button class="tab active" data-target="entrenar">
+      <span class="tab-icon">🏋️</span>
+      <span class="tab-label">Entrenar</span>
+    </button>
+    <button class="tab" data-target="ejercicios">
+      <span class="tab-icon">💪</span>
+      <span class="tab-label">Ejercicios</span>
+    </button>
+    <button class="tab" data-target="rutinas">
+      <span class="tab-icon">📋</span>
+      <span class="tab-label">Rutinas</span>
+    </button>
+    <button class="tab" data-target="historial">
+      <span class="tab-icon">📜</span>
+      <span class="tab-label">Historial</span>
+    </button>
+    <button class="tab" data-target="ajustes">
+      <span class="tab-icon">⚙️</span>
+      <span class="tab-label">Ajustes</span>
+    </button>
+  </nav>
+
+  <!-- ============ MODAL GENÉRICO ============ -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 id="modal-titulo"></h2>
+      <div id="modal-contenido"></div>
+      <div class="modal-acciones">
+        <button id="modal-cancelar" class="btn btn-ghost">Cancelar</button>
+        <button id="modal-confirmar" class="btn btn-primary">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

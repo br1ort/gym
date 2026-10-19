@@ -1,0 +1,894 @@
+/* ============================================================
+   FitLog Lite — Lógica del dominio y StorageManager
+   HTML5 + CSS3 + JavaScript ES6+ Vanilla (sin dependencias)
+   ============================================================ */
+
+'use strict';
+
+/* ============================================================
+   SECCIÓN A — Modelos (Clases ES6)
+   ============================================================ */
+
+function generarId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+class Ejercicio {
+  constructor({ id, nombre, grupoMuscular = '' }) {
+    this.id = id || generarId();
+    this.nombre = nombre;
+    this.grupoMuscular = grupoMuscular;
+  }
+}
+
+class Rutina {
+  constructor({ id, nombre, ejercicioIds = [] }) {
+    this.id = id || generarId();
+    this.nombre = nombre;
+    this.ejercicioIds = ejercicioIds;
+  }
+}
+
+class Serie {
+  constructor({ id, numeroSerie, peso = 0, repeticiones = 0, completada = false }) {
+    this.id = id || generarId();
+    this.numeroSerie = numeroSerie;
+    this.peso = peso;
+    this.repeticiones = repeticiones;
+    this.completada = completada;
+  }
+}
+
+class Entrenamiento {
+  constructor({ id, fecha, duracionMinutos = 0, notas = '', ejerciciosRealizados = [], fechaInicio = null }) {
+    this.id = id || generarId();
+    this.fecha = fecha || new Date().toISOString();
+    this.fechaInicio = fechaInicio || Date.now();
+    this.duracionMinutos = duracionMinutos;
+    this.notas = notas;
+    // [{ ejercicioId, nombre, series: [Serie] }]
+    this.ejerciciosRealizados = ejerciciosRealizados;
+  }
+}
+
+/* ============================================================
+   SECCIÓN B — StorageManager (DAO)
+   Persistencia 100% client-side en localStorage (RN-01, RF-10)
+   ============================================================ */
+
+class StorageManager {
+  static KEYS = {
+    ejercicios: 'fitlog.ejercicios',
+    rutinas: 'fitlog.rutinas',
+    historial: 'fitlog.historial',
+    activo: 'fitlog.activo',
+  };
+
+  static SEED = {
+    ejercicios: [
+      { id: 'seed-press-banca', nombre: 'Press de Banca', grupoMuscular: 'Pecho' },
+      { id: 'seed-sentadilla', nombre: 'Sentadilla', grupoMuscular: 'Piernas' },
+      { id: 'seed-peso-muerto', nombre: 'Peso Muerto', grupoMuscular: 'Espalda' },
+    ],
+    rutinas: [
+      {
+        id: 'seed-rutina-fullbody',
+        nombre: 'Full Body Básico',
+        ejercicioIds: ['seed-press-banca', 'seed-sentadilla', 'seed-peso-muerto'],
+      },
+    ],
+  };
+
+  /** Lee una clave y parsea JSON. Devuelve null si falta o está corrupto. */
+  static #leer(clave) {
+    try {
+      const raw = localStorage.getItem(clave);
+      if (raw === null) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  static #escribir(clave, valor) {
+    localStorage.setItem(clave, JSON.stringify(valor));
+  }
+
+  /** Carga todo el estado; si está vacío o corrupto aplica seed (RN-02). */
+  static cargar() {
+    let ejercicios = this.#leer(this.KEYS.ejercicios);
+    let rutinas = this.#leer(this.KEYS.rutinas);
+    let historial = this.#leer(this.KEYS.historial);
+    const activo = this.#leer(this.KEYS.activo);
+
+    const corrupto =
+      !Array.isArray(ejercicios) ||
+      !Array.isArray(rutinas) ||
+      !Array.isArray(historial) ||
+      (activo !== null && typeof activo !== 'object');
+
+    if (corrupto) {
+      ejercicios = this.SEED.ejercicios.map((e) => new Ejercicio(e));
+      rutinas = this.SEED.rutinas.map((r) => new Rutina(r));
+      historial = [];
+      this.guardarEjercicios(ejercicios);
+      this.guardarRutinas(rutinas);
+      this.guardarHistorial(historial);
+      if (activo !== null) this.limpiarActivo();
+    }
+
+    return {
+      ejercicios: ejercicios.map((e) => new Ejercicio(e)),
+      rutinas: rutinas.map((r) => new Rutina(r)),
+      historial: historial.map((h) => new Entrenamiento(h)),
+      activo: activo ? new Entrenamiento(activo) : null,
+    };
+  }
+
+  static guardarEjercicios(lista) { this.#escribir(this.KEYS.ejercicios, lista); }
+  static guardarRutinas(lista) { this.#escribir(this.KEYS.rutinas, lista); }
+  static guardarHistorial(lista) { this.#escribir(this.KEYS.historial, lista); }
+
+  static getActivo() {
+    const a = this.#leer(this.KEYS.activo);
+    return a ? new Entrenamiento(a) : null;
+  }
+
+  static setActivo(entrenamiento) { this.#escribir(this.KEYS.activo, entrenamiento); }
+  static limpiarActivo() { localStorage.removeItem(this.KEYS.activo); }
+
+  /** Exporta todos los datos como string JSON (RF-11). */
+  static exportarJSON() {
+    const datos = {
+      version: 1,
+      exportadoEn: new Date().toISOString(),
+      ejercicios: this.#leer(this.KEYS.ejercicios) ?? [],
+      rutinas: this.#leer(this.KEYS.rutinas) ?? [],
+      historial: this.#leer(this.KEYS.historial) ?? [],
+    };
+    return JSON.stringify(datos, null, 2);
+  }
+
+  /** Importa desde string JSON con validación básica (RF-11). Lanza Error si es inválido. */
+  static importarJSON(texto) {
+    let datos;
+    try {
+      datos = JSON.parse(texto);
+    } catch {
+      throw new Error('El archivo no es un JSON válido.');
+    }
+    if (
+      !datos ||
+      !Array.isArray(datos.ejercicios) ||
+      !Array.isArray(datos.rutinas) ||
+      !Array.isArray(datos.historial)
+    ) {
+      throw new Error('El archivo no tiene el formato de respaldo de FitLog Lite.');
+    }
+    const ejercicios = datos.ejercicios.map((e) => new Ejercicio(e));
+    const rutinas = datos.rutinas.map((r) => new Rutina(r));
+    const historial = datos.historial.map((h) => new Entrenamiento(h));
+
+    this.guardarEjercicios(ejercicios);
+    this.guardarRutinas(rutinas);
+    this.guardarHistorial(historial);
+    return { ejercicios, rutinas, historial };
+  }
+
+  /** Restaura datos seed y limpia el entrenamiento activo (RN-02). */
+  static restablecerSeed() {
+    const ejercicios = this.SEED.ejercicios.map((e) => new Ejercicio(e));
+    const rutinas = this.SEED.rutinas.map((r) => new Rutina(r));
+    this.guardarEjercicios(ejercicios);
+    this.guardarRutinas(rutinas);
+    this.guardarHistorial([]);
+    this.limpiarActivo();
+    return { ejercicios, rutinas, historial: [] };
+  }
+}
+
+/* ============================================================
+   SECCIÓN C — Validaciones (RN-04)
+   ============================================================ */
+
+const Validaciones = {
+  nombreNoVacio(valor) {
+    return typeof valor === 'string' && valor.trim().length > 0;
+  },
+  numeroNoNegativo(valor) {
+    const n = Number(valor);
+    return Number.isFinite(n) && n >= 0;
+  },
+};
+
+/* ============================================================
+   SECCIÓN D — Estado global + helpers de UI
+   ============================================================ */
+
+const estado = {
+  ejercicios: [],
+  rutinas: [],
+  historial: [],
+  activo: null,
+  vistaActual: 'entrenar',
+};
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = String(str ?? '');
+  return div.innerHTML;
+}
+
+function formatearFecha(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) +
+    ' · ' + d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+}
+
+function minutosDesde(ts) {
+  return Math.max(0, Math.round((Date.now() - ts) / 60000));
+}
+
+/* --- Modal genérico con confirmación --- */
+const Modal = {
+  abrir(titulo, contenidoHTML, alConfirmar) {
+    $('#modal-titulo').textContent = titulo;
+    $('#modal-contenido').innerHTML = contenidoHTML;
+    $('#modal-overlay').classList.remove('hidden');
+    this._alConfirmar = alConfirmar;
+  },
+  cerrar() {
+    $('#modal-overlay').classList.add('hidden');
+    this._alConfirmar = null;
+  },
+};
+
+/* ============================================================
+   SECCIÓN E — Lógica por vista
+   ============================================================ */
+
+/* ---------- E1: Vista Entrenar ---------- */
+
+const VistaEntrenar = {
+  render() {
+    const hayActivo = estado.activo !== null;
+    $('#panel-iniciar').classList.toggle('hidden', hayActivo);
+    $('#panel-activo').classList.toggle('hidden', !hayActivo);
+
+    if (hayActivo) this.renderActivo();
+    else this.renderListaRutinas();
+  },
+
+  renderListaRutinas() {
+    const cont = $('#lista-rutinas-inicio');
+    if (estado.rutinas.length === 0) {
+      cont.innerHTML = '<p class="empty-state">No hay rutinas. Crea una en la pestaña Rutinas o inicia en blanco.</p>';
+      return;
+    }
+    cont.innerHTML = estado.rutinas
+      .map((r) => {
+        const nombres = r.ejercicioIds
+          .map((id) => estado.ejercicios.find((e) => e.id === id)?.nombre)
+          .filter(Boolean)
+          .join(' · ');
+        return `
+          <div class="card card-tap" data-rutina-inicio="${r.id}">
+            <div class="card-title">${escapeHTML(r.nombre)}</div>
+            <div class="card-sub">${escapeHTML(nombres || 'Sin ejercicios')}</div>
+          </div>`;
+      })
+      .join('');
+  },
+
+  renderActivo() {
+    const a = estado.activo;
+    $('#activo-fecha').textContent = formatearFecha(a.fecha);
+    $('#activo-tiempo').textContent = minutosDesde(a.fechaInicio) + ' min';
+
+    const cont = $('#lista-ejercicios-activos');
+    if (a.ejerciciosRealizados.length === 0) {
+      cont.innerHTML = '<p class="empty-state">Sin ejercicios todavía. Agrega el primero ↓</p>';
+      return;
+    }
+    cont.innerHTML = a.ejerciciosRealizados
+      .map((ej, idx) => {
+        const seriesHTML = ej.series
+          .map(
+            (s) => `
+            <div class="series-row ${s.completada ? 'completada' : ''}" data-serie="${s.id}">
+              <span class="series-num">${s.numeroSerie}</span>
+              <input class="input input-num" type="number" inputmode="decimal" min="0" step="0.5"
+                value="${s.peso}" data-campo="peso" data-serie-id="${s.id}" aria-label="Peso kg">
+              <span class="chip">kg</span>
+              <input class="input input-num" type="number" inputmode="numeric" min="0" step="1"
+                value="${s.repeticiones}" data-campo="repeticiones" data-serie-id="${s.id}" aria-label="Repeticiones">
+              <span class="chip">reps</span>
+              <button class="series-check ${s.completada ? 'checked' : ''}" data-toggle-serie="${s.id}" aria-label="Marcar completada">✓</button>
+              <button class="series-eliminar" data-eliminar-serie="${s.id}" aria-label="Eliminar serie">✕</button>
+            </div>`
+          )
+          .join('');
+        const grupo = estado.ejercicios.find((e) => e.id === ej.ejercicioId)?.grupoMuscular || '';
+        return `
+          <div class="exercise-block" data-ejercicio-idx="${idx}">
+            <div class="card-title">
+              <span>${escapeHTML(ej.nombre)}${grupo ? ` <span class="chip">${escapeHTML(grupo)}</span>` : ''}</span>
+            </div>
+            ${seriesHTML}
+            <button class="btn-add-serie" data-add-serie="${idx}">+ Agregar serie</button>
+          </div>`;
+      })
+      .join('');
+  },
+
+  iniciarDesdeRutina(rutinaId) {
+    const rutina = estado.rutinas.find((r) => r.id === rutinaId);
+    if (!rutina) return;
+    if (estado.activo) {
+      UI.toast('Ya hay un entrenamiento activo.');
+      return;
+    }
+    const ejerciciosRealizados = rutina.ejercicioIds
+      .map((id) => estado.ejercicios.find((e) => e.id === id))
+      .filter(Boolean)
+      .map(
+        (e) => ({
+          ejercicioId: e.id,
+          nombre: e.nombre,
+          series: [],
+        })
+      );
+    this.iniciar(ejerciciosRealizados);
+  },
+
+  iniciarEnBlanco() {
+    if (estado.activo) {
+      UI.toast('Ya hay un entrenamiento activo.');
+      return;
+    }
+    this.iniciar([]);
+  },
+
+  iniciar(ejerciciosRealizados) {
+    estado.activo = new Entrenamiento({ ejerciciosRealizados });
+    StorageManager.setActivo(estado.activo);
+    this.render();
+  },
+
+  agregarEjercicio() {
+    const disponibles = estado.ejercicios;
+    if (disponibles.length === 0) {
+      UI.toast('Primero crea ejercicios en la pestaña Ejercicios.');
+      return;
+    }
+    const opciones = disponibles
+      .map((e) => `<label class="check-item"><input type="radio" name="ejercicio-agregar" value="${e.id}"> ${escapeHTML(e.nombre)}${e.grupoMuscular ? ` <span class="chip">${escapeHTML(e.grupoMuscular)}</span>` : ''}</label>`)
+      .join('');
+    Modal.abrir('Agregar ejercicio', `<div class="check-list">${opciones}</div>`, () => {
+      const sel = document.querySelector('input[name="ejercicio-agregar"]:checked');
+      if (!sel) {
+        UI.toast('Selecciona un ejercicio.');
+        return;
+      }
+      const ej = estado.ejercicios.find((e) => e.id === sel.value);
+      estado.activo.ejerciciosRealizados.push({
+        ejercicioId: ej.id,
+        nombre: ej.nombre,
+        series: [],
+      });
+      StorageManager.setActivo(estado.activo);
+      Modal.cerrar();
+      this.render();
+    });
+  },
+
+  agregarSerie(idx) {
+    const ej = estado.activo.ejerciciosRealizados[idx];
+    const numero = ej.series.length + 1;
+    ej.series.push(new Serie({ numeroSerie: numero }));
+    StorageManager.setActivo(estado.activo);
+    this.renderActivo();
+  },
+
+  actualizarSerie(serieId, campo, valor) {
+    for (const ej of estado.activo.ejerciciosRealizados) {
+      const s = ej.series.find((x) => x.id === serieId);
+      if (s) {
+        const n = Number(valor);
+        if (Validaciones.numeroNoNegativo(n)) s[campo] = n;
+        StorageManager.setActivo(estado.activo);
+        return;
+      }
+    }
+  },
+
+  toggleSerie(serieId) {
+    for (const ej of estado.activo.ejerciciosRealizados) {
+      const s = ej.series.find((x) => x.id === serieId);
+      if (s) {
+        s.completada = !s.completada;
+        StorageManager.setActivo(estado.activo);
+        this.renderActivo();
+        return;
+      }
+    }
+  },
+
+  eliminarSerie(serieId) {
+    for (const ej of estado.activo.ejerciciosRealizados) {
+      const i = ej.series.findIndex((x) => x.id === serieId);
+      if (i !== -1) {
+        ej.series.splice(i, 1);
+        ej.series.forEach((s, n) => (s.numeroSerie = n + 1));
+        StorageManager.setActivo(estado.activo);
+        this.renderActivo();
+        return;
+      }
+    }
+  },
+
+  finalizar() {
+    if (!estado.activo) return;
+    const totalSeries = estado.activo.ejerciciosRealizados.reduce((acc, e) => acc + e.series.length, 0);
+    if (totalSeries === 0) {
+      UI.toast('Agrega al menos una serie antes de finalizar.');
+      return;
+    }
+    Modal.abrir(
+      'Finalizar entrenamiento',
+      `<p class="hint">Se guardará en el historial con <strong>${totalSeries}</strong> serie(s) durante <strong>${minutosDesde(estado.activo.fechaInicio)}</strong> min.</p>
+       <input class="input" id="input-notas" placeholder="Notas (opcional)" autocomplete="off">`,
+      () => {
+        const notas = $('#input-notas')?.value?.trim() || '';
+        const ent = estado.activo;
+        ent.notas = notas;
+        ent.duracionMinutos = minutosDesde(ent.fechaInicio);
+        ent.fecha = new Date(ent.fechaInicio).toISOString();
+        delete ent.fechaInicio;
+
+        estado.historial.unshift(ent);
+        estado.historial.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+        StorageManager.guardarHistorial(estado.historial);
+        StorageManager.limpiarActivo();
+        estado.activo = null;
+        Modal.cerrar();
+        UI.toast('Entrenamiento guardado ✔');
+        this.render();
+      }
+    );
+  },
+};
+
+/* ---------- E2: Vista Ejercicios ---------- */
+
+const VistaEjercicios = {
+  render() {
+    const cont = $('#lista-ejercicios');
+    if (estado.ejercicios.length === 0) {
+      cont.innerHTML = '<p class="empty-state">No hay ejercicios. Agrega el primero arriba.</p>';
+      return;
+    }
+    cont.innerHTML = estado.ejercicios
+      .map(
+        (e) => `
+        <div class="card">
+          <div class="card-title">
+            <span>${escapeHTML(e.nombre)}</span>
+            <button class="btn btn-danger btn-small" data-eliminar-ejercicio="${e.id}">Eliminar</button>
+          </div>
+          ${e.grupoMuscular ? `<div class="card-sub">${escapeHTML(e.grupoMuscular)}</div>` : ''}
+        </div>`
+      )
+      .join('');
+  },
+
+  agregar(nombre, grupoMuscular) {
+    const err = $('#error-ejercicio');
+    if (!Validaciones.nombreNoVacio(nombre)) {
+      err.textContent = 'El nombre del ejercicio no puede estar vacío.';
+      err.classList.remove('hidden');
+      return false;
+    }
+    err.classList.add('hidden');
+    estado.ejercicios.push(new Ejercicio({ nombre: nombre.trim(), grupoMuscular: grupoMuscular.trim() }));
+    StorageManager.guardarEjercicios(estado.ejercicios);
+    this.render();
+    return true;
+  },
+
+  eliminar(id) {
+    const usadoEnRutina = estado.rutinas.some((r) => r.ejercicioIds.includes(id));
+    const texto = usadoEnRutina
+      ? 'Este ejercicio se usa en una o más rutinas (se quitarán de ellas). ¿Eliminar?'
+      : '¿Eliminar este ejercicio?';
+    Modal.abrir('Eliminar ejercicio', `<p class="hint">${texto}</p>`, () => {
+      estado.ejercicios = estado.ejercicios.filter((e) => e.id !== id);
+      estado.rutinas.forEach((r) => {
+        r.ejercicioIds = r.ejercicioIds.filter((eid) => eid !== id);
+      });
+      StorageManager.guardarEjercicios(estado.ejercicios);
+      StorageManager.guardarRutinas(estado.rutinas);
+      Modal.cerrar();
+      this.render();
+      VistaRutinas.render();
+      VistaEntrenar.render();
+    });
+  },
+};
+
+/* ---------- E3: Vista Rutinas ---------- */
+
+const VistaRutinas = {
+  seleccionados: [], // ids en orden de selección
+
+  render() {
+    // Selector de ejercicios
+    const sel = $('#selector-ejercicios-rutina');
+    if (estado.ejercicios.length === 0) {
+      sel.innerHTML = '<p class="empty-state">No hay ejercicios. Crea algunos en la pestaña Ejercicios.</p>';
+    } else {
+      sel.innerHTML = estado.ejercicios
+        .map((e) => {
+          const pos = this.seleccionados.indexOf(e.id);
+          return `
+            <label class="check-item">
+              <input type="checkbox" data-check-ejercicio="${e.id}" ${pos !== -1 ? 'checked' : ''}>
+              ${escapeHTML(e.nombre)}
+              ${e.grupoMuscular ? `<span class="chip">${escapeHTML(e.grupoMuscular)}</span>` : ''}
+              ${pos !== -1 ? `<span class="orden">${pos + 1}</span>` : ''}
+            </label>`;
+        })
+        .join('');
+    }
+
+    // Lista de rutinas
+    const cont = $('#lista-rutinas');
+    if (estado.rutinas.length === 0) {
+      cont.innerHTML = '<p class="empty-state">No hay rutinas creadas.</p>';
+      return;
+    }
+    cont.innerHTML = estado.rutinas
+      .map((r) => {
+        const nombres = r.ejercicioIds
+          .map((id) => estado.ejercicios.find((e) => e.id === id)?.nombre)
+          .filter(Boolean)
+          .join(' · ');
+        return `
+          <div class="card">
+            <div class="card-title">
+              <span>${escapeHTML(r.nombre)}</span>
+              <button class="btn btn-danger btn-small" data-eliminar-rutina="${r.id}">Eliminar</button>
+            </div>
+            <div class="card-sub">${escapeHTML(nombres || 'Sin ejercicios')}</div>
+          </div>`;
+      })
+      .join('');
+  },
+
+  toggleEjercicio(id, checked) {
+    if (checked) {
+      if (!this.seleccionados.includes(id)) this.seleccionados.push(id);
+    } else {
+      this.seleccionados = this.seleccionados.filter((x) => x !== id);
+    }
+    this.render();
+  },
+
+  crear(nombre) {
+    const err = $('#error-rutina');
+    if (!Validaciones.nombreNoVacio(nombre)) {
+      err.textContent = 'El nombre de la rutina no puede estar vacío.';
+      err.classList.remove('hidden');
+      return;
+    }
+    if (this.seleccionados.length === 0) {
+      err.textContent = 'Selecciona al menos un ejercicio.';
+      err.classList.remove('hidden');
+      return;
+    }
+    err.classList.add('hidden');
+    estado.rutinas.push(new Rutina({ nombre: nombre.trim(), ejercicioIds: [...this.seleccionados] }));
+    StorageManager.guardarRutinas(estado.rutinas);
+    this.seleccionados = [];
+    $('#input-nombre-rutina').value = '';
+    this.render();
+    VistaEntrenar.render();
+  },
+
+  eliminar(id) {
+    Modal.abrir('Eliminar rutina', '<p class="hint">¿Eliminar esta rutina? El historial no se verá afectado.</p>', () => {
+      estado.rutinas = estado.rutinas.filter((r) => r.id !== id);
+      StorageManager.guardarRutinas(estado.rutinas);
+      Modal.cerrar();
+      this.render();
+      VistaEntrenar.render();
+    });
+  },
+};
+
+/* ---------- E4: Vista Historial ---------- */
+
+const VistaHistorial = {
+  render() {
+    $('#panel-historial-lista').classList.remove('hidden');
+    $('#panel-historial-detalle').classList.add('hidden');
+
+    const cont = $('#lista-historial');
+    if (estado.historial.length === 0) {
+      cont.innerHTML = '<p class="empty-state">Aún no hay entrenamientos guardados.</p>';
+      return;
+    }
+    cont.innerHTML = estado.historial
+      .map((h) => {
+        const totalSeries = h.ejerciciosRealizados.reduce((acc, e) => acc + e.series.length, 0);
+        return `
+          <div class="card card-tap" data-historial-id="${h.id}">
+            <div class="card-title">${formatearFecha(h.fecha)}</div>
+            <div class="card-sub">${h.ejerciciosRealizados.length} ejercicio(s) · ${totalSeries} serie(s) · ${h.duracionMinutos} min${h.notas ? ` · 📝 ${escapeHTML(h.notas)}` : ''}</div>
+          </div>`;
+      })
+      .join('');
+  },
+
+  verDetalle(id) {
+    const h = estado.historial.find((x) => x.id === id);
+    if (!h) return;
+
+    const ejerciciosHTML = h.ejerciciosRealizados
+      .map((ej) => {
+        const seriesHTML = ej.series
+          .map(
+            (s) => `
+            <div class="detalle-serie">
+              <span>Serie ${s.numeroSerie}</span>
+              <span><strong>${s.peso}</strong> kg × <strong>${s.repeticiones}</strong> reps</span>
+              <span>${s.completada ? '✔' : ''}</span>
+            </div>`
+          )
+          .join('');
+        return `
+          <div class="detalle-ejercicio">
+            <div class="card-title">${escapeHTML(ej.nombre)}</div>
+            ${seriesHTML || '<p class="card-sub">Sin series registradas</p>'}
+          </div>`;
+      })
+      .join('');
+
+    $('#detalle-entrenamiento').innerHTML = `
+      <div class="card">
+        <div class="card-title">${formatearFecha(h.fecha)}</div>
+        <div class="card-sub">${h.duracionMinutos} min${h.notas ? ` · Notas: ${escapeHTML(h.notas)}` : ''}</div>
+      </div>
+      ${ejerciciosHTML}`;
+
+    $('#panel-historial-lista').classList.add('hidden');
+    $('#panel-historial-detalle').classList.remove('hidden');
+  },
+
+  volver() {
+    this.render();
+  },
+};
+
+/* ---------- E5: Vista Ajustes ---------- */
+
+const VistaAjustes = {
+  exportar() {
+    const json = StorageManager.exportarJSON();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fitlog-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    UI.toast('Datos exportados ✔');
+  },
+
+  importar(file) {
+    const lector = new FileReader();
+    lector.onload = () => {
+      Modal.abrir(
+        'Importar datos',
+        `<p class="hint">Se reemplazarán todos tus datos actuales por los del archivo <strong>${escapeHTML(file.name)}</strong>. ¿Continuar?</p>`,
+        () => {
+          try {
+            const res = StorageManager.importarJSON(String(lector.result));
+            estado.ejercicios = res.ejercicios;
+            estado.rutinas = res.rutinas;
+            estado.historial = res.historial;
+            estado.activo = StorageManager.getActivo();
+            Modal.cerrar();
+            UI.renderTodo();
+            UI.toast('Datos importados ✔');
+          } catch (err) {
+            Modal.cerrar();
+            UI.toast(err.message || 'Error al importar.');
+          }
+        }
+      );
+    };
+    lector.readAsText(file);
+  },
+
+  restablecer() {
+    Modal.abrir(
+      'Restablecer datos',
+      '<p class="hint">Se borrarán todos tus ejercicios, rutinas e historial, y se cargarán los datos por defecto. ¿Continuar?</p>',
+      () => {
+        const res = StorageManager.restablecerSeed();
+        estado.ejercicios = res.ejercicios;
+        estado.rutinas = res.rutinas;
+        estado.historial = res.historial;
+        estado.activo = null;
+        Modal.cerrar();
+        UI.renderTodo();
+        UI.toast('Datos restablecidos ✔');
+      }
+    );
+  },
+};
+
+/* ============================================================
+   Router y orquestación de UI
+   ============================================================ */
+
+const UI = {
+  irA(vista) {
+    estado.vistaActual = vista;
+    $$('.view').forEach((v) => v.classList.toggle('active', v.dataset.view === vista));
+    $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.target === vista));
+
+    // Al volver al historial, mostrar siempre la lista
+    if (vista === 'historial') VistaHistorial.render();
+    else this.renderVista(vista);
+  },
+
+  renderVista(vista) {
+    switch (vista) {
+      case 'entrenar': VistaEntrenar.render(); break;
+      case 'ejercicios': VistaEjercicios.render(); break;
+      case 'rutinas': VistaRutinas.render(); break;
+      case 'historial': VistaHistorial.render(); break;
+      case 'ajustes': break; // estático
+    }
+  },
+
+  renderTodo() {
+    this.renderVista('entrenar');
+    this.renderVista('ejercicios');
+    this.renderVista('rutinas');
+    this.renderVista('historial');
+  },
+
+  toast(msg) {
+    // Feedback mínimo sin dependencias
+    let t = $('#toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'toast';
+      t.style.cssText =
+        'position:fixed;bottom:calc(64px + env(safe-area-inset-bottom,0px) + 12px);left:50%;transform:translateX(-50%);background:#1e2330;color:#e8ecf4;border:1px solid #2a3040;padding:10px 18px;border-radius:999px;font-size:14px;z-index:300;transition:opacity .3s;max-width:90%;text-align:center;';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => {
+      t.style.opacity = '0';
+    }, 2200);
+  },
+};
+
+/* ============================================================
+   Bootstrap + Event listeners
+   ============================================================ */
+
+function init() {
+  const datos = StorageManager.cargar();
+  estado.ejercicios = datos.ejercicios;
+  estado.rutinas = datos.rutinas;
+  estado.historial = datos.historial;
+  estado.activo = datos.activo;
+
+  UI.renderTodo();
+
+  /* --- Tabs --- */
+  $$('.tab').forEach((tab) => {
+    tab.addEventListener('click', () => UI.irA(tab.dataset.target));
+  });
+
+  /* --- Entrenar: iniciar desde rutina (delegación) --- */
+  $('#lista-rutinas-inicio').addEventListener('click', (ev) => {
+    const card = ev.target.closest('[data-rutina-inicio]');
+    if (card) VistaEntrenar.iniciarDesdeRutina(card.dataset.rutinaInicio);
+  });
+  $('#btn-iniciar-vacio').addEventListener('click', () => VistaEntrenar.iniciarEnBlanco());
+
+  /* --- Entrenar: sesión activa --- */
+  $('#btn-agregar-ejercicio-activo').addEventListener('click', () => VistaEntrenar.agregarEjercicio());
+  $('#btn-finalizar').addEventListener('click', () => VistaEntrenar.finalizar());
+
+  $('#lista-ejercicios-activos').addEventListener('click', (ev) => {
+    const add = ev.target.closest('[data-add-serie]');
+    if (add) return VistaEntrenar.agregarSerie(Number(add.dataset.addSerie));
+    const toggle = ev.target.closest('[data-toggle-serie]');
+    if (toggle) return VistaEntrenar.toggleSerie(toggle.dataset.toggleSerie);
+    const del = ev.target.closest('[data-eliminar-serie]');
+    if (del) return VistaEntrenar.eliminarSerie(del.dataset.eliminarSerie);
+  });
+
+  $('#lista-ejercicios-activos').addEventListener('change', (ev) => {
+    const inp = ev.target.closest('[data-campo]');
+    if (inp) VistaEntrenar.actualizarSerie(inp.dataset.serieId, inp.dataset.campo, inp.value);
+  });
+
+  /* --- Ejercicios --- */
+  $('#form-ejercicio').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const ok = VistaEjercicios.agregar($('#input-nombre-ejercicio').value, $('#input-grupo-muscular').value);
+    if (ok) {
+      $('#input-nombre-ejercicio').value = '';
+      $('#input-grupo-muscular').value = '';
+      VistaRutinas.render(); // el selector puede haber cambiado
+      VistaEntrenar.render();
+    }
+  });
+
+  $('#lista-ejercicios').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-eliminar-ejercicio]');
+    if (btn) VistaEjercicios.eliminar(btn.dataset.eliminarEjercicio);
+  });
+
+  /* --- Rutinas --- */
+  $('#selector-ejercicios-rutina').addEventListener('change', (ev) => {
+    const chk = ev.target.closest('[data-check-ejercicio]');
+    if (chk) VistaRutinas.toggleEjercicio(chk.dataset.checkEjercicio, chk.checked);
+  });
+  $('#btn-crear-rutina').addEventListener('click', () => VistaRutinas.crear($('#input-nombre-rutina').value));
+
+  $('#lista-rutinas').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-eliminar-rutina]');
+    if (btn) VistaRutinas.eliminar(btn.dataset.eliminarRutina);
+  });
+
+  /* --- Historial --- */
+  $('#lista-historial').addEventListener('click', (ev) => {
+    const card = ev.target.closest('[data-historial-id]');
+    if (card) VistaHistorial.verDetalle(card.dataset.historialId);
+  });
+  $('#btn-volver-historial').addEventListener('click', () => VistaHistorial.volver());
+
+  /* --- Ajustes --- */
+  $('#btn-exportar').addEventListener('click', () => VistaAjustes.exportar());
+  $('#btn-importar').addEventListener('click', () => $('#input-importar').click());
+  $('#input-importar').addEventListener('change', (ev) => {
+    const file = ev.target.files[0];
+    if (file) VistaAjustes.importar(file);
+    ev.target.value = '';
+  });
+  $('#btn-reset').addEventListener('click', () => VistaAjustes.restablecer());
+
+  /* --- Modal --- */
+  $('#modal-cancelar').addEventListener('click', () => Modal.cerrar());
+  $('#modal-confirmar').addEventListener('click', () => {
+    if (Modal._alConfirmar) Modal._alConfirmar();
+  });
+  $('#modal-overlay').addEventListener('click', (ev) => {
+    if (ev.target === $('#modal-overlay')) Modal.cerrar();
+  });
+
+  /* --- Reloj de la sesión activa (RF-03: sobrevive recargas) --- */
+  setInterval(() => {
+    if (estado.activo && estado.vistaActual === 'entrenar') {
+      $('#activo-tiempo').textContent = minutosDesde(estado.activo.fechaInicio) + ' min';
+    }
+  }, 30000);
+}
+
+document.addEventListener('DOMContentLoaded', init);

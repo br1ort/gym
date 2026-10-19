@@ -1,0 +1,488 @@
+/* ============================================================
+   FitLog Lite — Estilos optimizados para iOS (mobile-first)
+   ============================================================ */
+
+:root {
+  --bg: #0d0f14;
+  --bg-elevated: #161a22;
+  --bg-input: #1e2330;
+  --border: #2a3040;
+  --text: #e8ecf4;
+  --text-dim: #8b94a7;
+  --accent: #3ddc84;
+  --accent-dark: #2bb86a;
+  --danger: #ff5c5c;
+  --danger-dark: #d94444;
+  --tabbar-h: 64px;
+  --header-h: 52px;
+  --radius: 12px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f6fa;
+    --bg-elevated: #ffffff;
+    --bg-input: #eef1f6;
+    --border: #d8dee9;
+    --text: #141824;
+    --text-dim: #5d6575;
+  }
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: var(--header-h);
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  line-height: 1.4;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ============ Header ============ */
+.app-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--header-h);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.app-header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+/* ============ Main / vistas ============ */
+#main {
+  padding: 16px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.view {
+  display: none;
+}
+
+.view.active {
+  display: block;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============ Tipografía / utilidades ============ */
+h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 14px;
+  margin: 8px 0;
+}
+
+.chip {
+  display: inline-block;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.chip-accent {
+  background: rgba(61, 220, 132, 0.12);
+  border-color: rgba(61, 220, 132, 0.4);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ============ Botones (min-height 44px, RN/UI-UX) ============ */
+.btn {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 10px;
+  transition: filter 0.1s ease;
+}
+
+.btn:active {
+  filter: brightness(0.85);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #06281a;
+}
+
+.btn-secondary {
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border);
+}
+
+.btn-small {
+  min-height: 36px;
+  font-size: 14px;
+  padding: 6px 12px;
+  width: auto;
+  display: inline-block;
+  margin-top: 0;
+}
+
+/* ============ Inputs (font-size ≥ 16px, RN/UI-UX) ============ */
+.input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 16px;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--accent);
+}
+
+.input-num {
+  width: 80px;
+  text-align: center;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.form-row-inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ============ Cards / listas ============ */
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.card + .card {
+  margin-top: 10px;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-sub {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.card-tap {
+  cursor: pointer;
+  transition: border-color 0.1s ease;
+}
+
+.card-tap:active {
+  border-color: var(--accent);
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 32px 16px;
+}
+
+/* ============ Check list (selector ejercicios rutina) ============ */
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.check-item input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.check-item .orden {
+  margin-left: auto;
+  background: var(--accent);
+  color: #06281a;
+  border-radius: 999px;
+  min-width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 6px;
+}
+
+/* ============ Sesión activa ============ */
+.session-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.exercise-block {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.exercise-block .card-title {
+  margin-bottom: 10px;
+}
+
+.series-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.series-num {
+  width: 28px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.series-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 18px;
+  color: transparent;
+}
+
+.series-check.checked {
+  background: rgba(61, 220, 132, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.series-row.completada .input-num {
+  opacity: 0.5;
+}
+
+.series-eliminar {
+  width: 44px;
+  height: 44px;
+  background: transparent;
+  border: none;
+  color: var(--danger);
+  font-size: 20px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.btn-add-serie {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  min-height: 40px;
+  border-radius: var(--radius);
+  width: 100%;
+  font-size: 14px;
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+/* ============ Detalle historial ============ */
+.detalle-ejercicio {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-top: 10px;
+}
+
+.detalle-serie {
+  display: flex;
+  gap: 16px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.detalle-serie strong {
+  color: var(--text);
+}
+
+/* ============ Tab bar ============ */
+.tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 100;
+}
+
+.tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+  min-height: 44px;
+  padding: 6px 0;
+}
+
+.tab-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.tab.active {
+  color: var(--accent);
+}
+
+/* ============ Modal ============ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 24px;
+}
+
+.modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.modal-acciones {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.modal-acciones .btn {
+  margin-top: 0;
+}
