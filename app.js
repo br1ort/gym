@@ -1009,3 +1009,12 @@ function init() {
 // Estado local de la vista Entrenar: true = editor abierto, false = lista
 VistaEntrenar.modoEditor = false;
 document.addEventListener('DOMContentLoaded', init);
+
+/* --- Registro del Service Worker (PWA offline) --- */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((err) => {
+      console.warn('Service Worker no registrado:', err);
+    });
+  });
+}
