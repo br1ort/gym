@@ -30,11 +30,12 @@ class Rutina {
 }
 
 class Serie {
-  constructor({ id, numeroSerie, peso = 0, repeticiones = 0, completada = false }) {
+  constructor({ id, numeroSerie, peso = 0, repeticiones = 0, descanso = 0, completada = false }) {
     this.id = id || generarId();
     this.numeroSerie = numeroSerie;
     this.peso = peso;
     this.repeticiones = repeticiones;
+    this.descanso = descanso;
     this.completada = completada;
   }
 }
@@ -213,6 +214,9 @@ const estado = {
   vistaActual: 'entrenar',
 };
 
+// Estado local de la vista Entrenar: rutina seleccionada para ver detalle
+// (se asigna tras definir VistaEntrenar)
+
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
@@ -226,10 +230,6 @@ function formatearFecha(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) +
     ' · ' + d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-}
-
-function minutosDesde(ts) {
-  return Math.max(0, Math.round((Date.now() - ts) / 60000));
 }
 
 /* --- Modal genérico con confirmación --- */
@@ -254,15 +254,17 @@ const Modal = {
 
 const VistaEntrenar = {
   render() {
-    const hayActivo = estado.activo !== null;
-    $('#panel-iniciar').classList.toggle('hidden', hayActivo);
-    $('#panel-activo').classList.toggle('hidden', !hayActivo);
+    const editando = estado.activo !== null && this.modoEditor;
+    $('#panel-iniciar').classList.toggle('hidden', editando);
+    $('#panel-activo').classList.toggle('hidden', !editando);
 
-    if (hayActivo) this.renderActivo();
+    if (editando) this.renderActivo();
     else this.renderListaRutinas();
   },
 
   renderListaRutinas() {
+    this.renderPendiente();
+
     const cont = $('#lista-rutinas-inicio');
     if (estado.rutinas.length === 0) {
       cont.innerHTML = '<p class="empty-state">No hay rutinas. Crea una en la pestaña Rutinas o inicia en blanco.</p>';
@@ -283,10 +285,122 @@ const VistaEntrenar = {
       .join('');
   },
 
+  /** Muestra el entrenamiento pendiente (borrador) si existe. */
+  renderPendiente() {
+    const cont = $('#draft-pendiente');
+    if (!estado.activo) {
+      cont.innerHTML = '';
+      return;
+    }
+    const a = estado.activo;
+    const totalSeries = a.ejerciciosRealizados.reduce((acc, e) => acc + e.series.length, 0);
+    cont.innerHTML = `
+      <div class="card card-tap card-pendiente" data-retomar-borrador>
+        <div class="card-title">
+          <span>⏳ Entrenamiento pendiente</span>
+          <span class="chip chip-accent">Borrador</span>
+        </div>
+        <div class="card-sub">
+          ${formatearFecha(a.fecha)} · ${a.ejerciciosRealizados.length} ejercicio(s) · ${totalSeries} serie(s)
+          — Toca para continuar
+        </div>
+      </div>`;
+  },
+
+  /** Reanuda el borrador pendiente en el editor. */
+  retomarBorrador() {
+    if (!estado.activo) return;
+    this.modoEditor = true;
+    this.render();
+  },
+
+  /** Abre el editor creando un borrador nuevo desde una rutina. */
+  abrirRutina(rutinaId) {
+    const rutina = estado.rutinas.find((r) => r.id === rutinaId);
+    if (!rutina) return;
+    const crear = () => {
+      const ejerciciosRealizados = rutina.ejercicioIds
+        .map((id) => estado.ejercicios.find((e) => e.id === id))
+        .filter(Boolean)
+        .map((e) => ({
+          ejercicioId: e.id,
+          nombre: e.nombre,
+          series: this.seriesDesdeHistorial(e.id),
+        }));
+      this.crearBorrador(ejerciciosRealizados);
+    };
+    this.conBorradorExistente(crear, `la rutina "${rutina.nombre}"`);
+  },
+
+  /** Abre el editor con un borrador vacío. */
+  abrirEnBlanco() {
+    this.conBorradorExistente(() => this.crearBorrador([]), 'un entrenamiento en blanco');
+  },
+
+  /**
+   * Si ya hay un borrador pendiente, pide confirmación antes de reemplazarlo
+   * (solo puede existir un entrenamiento pendiente a la vez).
+   */
+  conBorradorExistente(accion, descripcion) {
+    if (!estado.activo) {
+      accion();
+      return;
+    }
+    Modal.abrir(
+      'Entrenamiento pendiente',
+      `<p class="hint">Ya tienes un entrenamiento pendiente sin finalizar. Si abres ${descripcion}, se descartará el borrador actual. ¿Continuar?</p>`,
+      () => {
+        Modal.cerrar();
+        accion();
+      }
+    );
+  },
+
+  crearBorrador(ejerciciosRealizados) {
+    estado.activo = new Entrenamiento({ ejerciciosRealizados });
+    this.modoEditor = true;
+    StorageManager.setActivo(estado.activo);
+    this.render();
+  },
+
+  /** Guarda el borrador y vuelve a la lista de entrenamientos. */
+  guardar() {
+    if (!estado.activo) return;
+    StorageManager.setActivo(estado.activo);
+    this.modoEditor = false;
+    this.render();
+    UI.toast('Progreso guardado ✔');
+  },
+
+  /**
+   * Devuelve las series del último entrenamiento finalizado que incluyó
+   * este ejercicio, como valores por defecto para repetir la sesión.
+   * Las series se crean sin marcar como completadas.
+   */
+  seriesDesdeHistorial(ejercicioId) {
+    const ordenados = [...estado.historial].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    for (const ent of ordenados) {
+      const ej = ent.ejerciciosRealizados.find((x) => x.ejercicioId === ejercicioId);
+      if (ej && ej.series.length > 0) {
+        return ej.series.map(
+          (s, i) =>
+            new Serie({
+              numeroSerie: i + 1,
+              peso: s.peso,
+              repeticiones: s.repeticiones,
+              descanso: s.descanso ?? 0,
+              completada: false,
+            })
+        );
+      }
+    }
+    return [];
+  },
+
   renderActivo() {
     const a = estado.activo;
     $('#activo-fecha').textContent = formatearFecha(a.fecha);
-    $('#activo-tiempo').textContent = minutosDesde(a.fechaInicio) + ' min';
+    $('#activo-estado').textContent = 'En edición';
 
     const cont = $('#lista-ejercicios-activos');
     if (a.ejerciciosRealizados.length === 0) {
@@ -300,14 +414,24 @@ const VistaEntrenar = {
             (s) => `
             <div class="series-row ${s.completada ? 'completada' : ''}" data-serie="${s.id}">
               <span class="series-num">${s.numeroSerie}</span>
-              <input class="input input-num" type="number" inputmode="decimal" min="0" step="0.5"
-                value="${s.peso}" data-campo="peso" data-serie-id="${s.id}" aria-label="Peso kg">
-              <span class="chip">kg</span>
-              <input class="input input-num" type="number" inputmode="numeric" min="0" step="1"
-                value="${s.repeticiones}" data-campo="repeticiones" data-serie-id="${s.id}" aria-label="Repeticiones">
-              <span class="chip">reps</span>
+              <label class="series-field">
+                <input class="input input-num" type="number" inputmode="decimal" min="0" step="0.5"
+                  value="${s.peso}" data-campo="peso" data-serie-id="${s.id}" aria-label="Peso kg">
+                <span class="series-unit">kg</span>
+              </label>
+              <label class="series-field">
+                <input class="input input-num" type="number" inputmode="numeric" min="0" step="1"
+                  value="${s.repeticiones}" data-campo="repeticiones" data-serie-id="${s.id}" aria-label="Repeticiones">
+                <span class="series-unit">reps</span>
+              </label>
               <button class="series-check ${s.completada ? 'checked' : ''}" data-toggle-serie="${s.id}" aria-label="Marcar completada">✓</button>
               <button class="series-eliminar" data-eliminar-serie="${s.id}" aria-label="Eliminar serie">✕</button>
+              <label class="series-field series-rest">
+                <span class="series-unit">Descanso</span>
+                <input class="input input-num" type="number" inputmode="numeric" min="0" step="5"
+                  value="${s.descanso ?? 0}" data-campo="descanso" data-serie-id="${s.id}" aria-label="Descanso en segundos">
+                <span class="series-unit">s</span>
+              </label>
             </div>`
           )
           .join('');
@@ -322,40 +446,6 @@ const VistaEntrenar = {
           </div>`;
       })
       .join('');
-  },
-
-  iniciarDesdeRutina(rutinaId) {
-    const rutina = estado.rutinas.find((r) => r.id === rutinaId);
-    if (!rutina) return;
-    if (estado.activo) {
-      UI.toast('Ya hay un entrenamiento activo.');
-      return;
-    }
-    const ejerciciosRealizados = rutina.ejercicioIds
-      .map((id) => estado.ejercicios.find((e) => e.id === id))
-      .filter(Boolean)
-      .map(
-        (e) => ({
-          ejercicioId: e.id,
-          nombre: e.nombre,
-          series: [],
-        })
-      );
-    this.iniciar(ejerciciosRealizados);
-  },
-
-  iniciarEnBlanco() {
-    if (estado.activo) {
-      UI.toast('Ya hay un entrenamiento activo.');
-      return;
-    }
-    this.iniciar([]);
-  },
-
-  iniciar(ejerciciosRealizados) {
-    estado.activo = new Entrenamiento({ ejerciciosRealizados });
-    StorageManager.setActivo(estado.activo);
-    this.render();
   },
 
   agregarEjercicio() {
@@ -377,7 +467,7 @@ const VistaEntrenar = {
       estado.activo.ejerciciosRealizados.push({
         ejercicioId: ej.id,
         nombre: ej.nombre,
-        series: [],
+        series: this.seriesDesdeHistorial(ej.id),
       });
       StorageManager.setActivo(estado.activo);
       Modal.cerrar();
@@ -388,7 +478,16 @@ const VistaEntrenar = {
   agregarSerie(idx) {
     const ej = estado.activo.ejerciciosRealizados[idx];
     const numero = ej.series.length + 1;
-    ej.series.push(new Serie({ numeroSerie: numero }));
+    // Hereda peso, reps y descanso de la última serie de este ejercicio
+    const ultima = ej.series[ej.series.length - 1];
+    ej.series.push(
+      new Serie({
+        numeroSerie: numero,
+        peso: ultima ? ultima.peso : 0,
+        repeticiones: ultima ? ultima.repeticiones : 0,
+        descanso: ultima ? ultima.descanso ?? 0 : 0,
+      })
+    );
     StorageManager.setActivo(estado.activo);
     this.renderActivo();
   },
@@ -439,14 +538,10 @@ const VistaEntrenar = {
     }
     Modal.abrir(
       'Finalizar entrenamiento',
-      `<p class="hint">Se guardará en el historial con <strong>${totalSeries}</strong> serie(s) durante <strong>${minutosDesde(estado.activo.fechaInicio)}</strong> min.</p>
-       <input class="input" id="input-notas" placeholder="Notas (opcional)" autocomplete="off">`,
+      `<p class="hint">Se guardará en el historial con <strong>${totalSeries}</strong> serie(s) y dejará de estar pendiente. ¿Continuar?</p>`,
       () => {
-        const notas = $('#input-notas')?.value?.trim() || '';
         const ent = estado.activo;
-        ent.notas = notas;
-        ent.duracionMinutos = minutosDesde(ent.fechaInicio);
-        ent.fecha = new Date(ent.fechaInicio).toISOString();
+        ent.duracionMinutos = 0;
         delete ent.fechaInicio;
 
         estado.historial.unshift(ent);
@@ -454,8 +549,9 @@ const VistaEntrenar = {
         StorageManager.guardarHistorial(estado.historial);
         StorageManager.limpiarActivo();
         estado.activo = null;
+        this.modoEditor = false;
         Modal.cerrar();
-        UI.toast('Entrenamiento guardado ✔');
+        UI.toast('Entrenamiento finalizado ✔');
         this.render();
       }
     );
@@ -544,6 +640,9 @@ const VistaRutinas = {
         .join('');
     }
 
+    // Botón Cancelar visible solo mientras hay un borrador en curso
+    $('#btn-cancelar-rutina').classList.toggle('hidden', !this.hayBorrador());
+
     // Lista de rutinas
     const cont = $('#lista-rutinas');
     if (estado.rutinas.length === 0) {
@@ -574,6 +673,20 @@ const VistaRutinas = {
     } else {
       this.seleccionados = this.seleccionados.filter((x) => x !== id);
     }
+    this.render();
+  },
+
+  /** ¿Hay un borrador de rutina en curso (nombre o ejercicios seleccionados)? */
+  hayBorrador() {
+    return this.seleccionados.length > 0 || ($('#input-nombre-rutina')?.value?.trim().length ?? 0) > 0;
+  },
+
+  /** Descarta el borrador actual y limpia el formulario (volver atrás). */
+  cancelar() {
+    this.seleccionados = [];
+    const input = $('#input-nombre-rutina');
+    if (input) input.value = '';
+    $('#error-rutina').classList.add('hidden');
     this.render();
   },
 
@@ -627,7 +740,7 @@ const VistaHistorial = {
         return `
           <div class="card card-tap" data-historial-id="${h.id}">
             <div class="card-title">${formatearFecha(h.fecha)}</div>
-            <div class="card-sub">${h.ejerciciosRealizados.length} ejercicio(s) · ${totalSeries} serie(s) · ${h.duracionMinutos} min${h.notas ? ` · 📝 ${escapeHTML(h.notas)}` : ''}</div>
+            <div class="card-sub">${h.ejerciciosRealizados.length} ejercicio(s) · ${totalSeries} serie(s)${h.notas ? ` · 📝 ${escapeHTML(h.notas)}` : ''}</div>
           </div>`;
       })
       .join('');
@@ -645,6 +758,7 @@ const VistaHistorial = {
             <div class="detalle-serie">
               <span>Serie ${s.numeroSerie}</span>
               <span><strong>${s.peso}</strong> kg × <strong>${s.repeticiones}</strong> reps</span>
+              <span>· ${s.descanso ?? 0}s descanso</span>
               <span>${s.completada ? '✔' : ''}</span>
             </div>`
           )
@@ -660,7 +774,7 @@ const VistaHistorial = {
     $('#detalle-entrenamiento').innerHTML = `
       <div class="card">
         <div class="card-title">${formatearFecha(h.fecha)}</div>
-        <div class="card-sub">${h.duracionMinutos} min${h.notas ? ` · Notas: ${escapeHTML(h.notas)}` : ''}</div>
+        <div class="card-sub">${h.notas ? `Notas: ${escapeHTML(h.notas)}` : 'Entrenamiento finalizado'}</div>
       </div>
       ${ejerciciosHTML}`;
 
@@ -803,15 +917,19 @@ function init() {
     tab.addEventListener('click', () => UI.irA(tab.dataset.target));
   });
 
-  /* --- Entrenar: iniciar desde rutina (delegación) --- */
+  /* --- Entrenar: abrir rutina o borrador pendiente --- */
   $('#lista-rutinas-inicio').addEventListener('click', (ev) => {
     const card = ev.target.closest('[data-rutina-inicio]');
-    if (card) VistaEntrenar.iniciarDesdeRutina(card.dataset.rutinaInicio);
+    if (card) VistaEntrenar.abrirRutina(card.dataset.rutinaInicio);
   });
-  $('#btn-iniciar-vacio').addEventListener('click', () => VistaEntrenar.iniciarEnBlanco());
+  $('#draft-pendiente').addEventListener('click', (ev) => {
+    if (ev.target.closest('[data-retomar-borrador]')) VistaEntrenar.retomarBorrador();
+  });
+  $('#btn-iniciar-vacio').addEventListener('click', () => VistaEntrenar.abrirEnBlanco());
 
-  /* --- Entrenar: sesión activa --- */
+  /* --- Entrenar: editor de progreso --- */
   $('#btn-agregar-ejercicio-activo').addEventListener('click', () => VistaEntrenar.agregarEjercicio());
+  $('#btn-guardar').addEventListener('click', () => VistaEntrenar.guardar());
   $('#btn-finalizar').addEventListener('click', () => VistaEntrenar.finalizar());
 
   $('#lista-ejercicios-activos').addEventListener('click', (ev) => {
@@ -851,6 +969,10 @@ function init() {
     if (chk) VistaRutinas.toggleEjercicio(chk.dataset.checkEjercicio, chk.checked);
   });
   $('#btn-crear-rutina').addEventListener('click', () => VistaRutinas.crear($('#input-nombre-rutina').value));
+  $('#btn-cancelar-rutina').addEventListener('click', () => VistaRutinas.cancelar());
+  $('#input-nombre-rutina').addEventListener('input', () => {
+    $('#btn-cancelar-rutina').classList.toggle('hidden', !VistaRutinas.hayBorrador());
+  });
 
   $('#lista-rutinas').addEventListener('click', (ev) => {
     const btn = ev.target.closest('[data-eliminar-rutina]');
@@ -882,13 +1004,8 @@ function init() {
   $('#modal-overlay').addEventListener('click', (ev) => {
     if (ev.target === $('#modal-overlay')) Modal.cerrar();
   });
-
-  /* --- Reloj de la sesión activa (RF-03: sobrevive recargas) --- */
-  setInterval(() => {
-    if (estado.activo && estado.vistaActual === 'entrenar') {
-      $('#activo-tiempo').textContent = minutosDesde(estado.activo.fechaInicio) + ' min';
-    }
-  }, 30000);
 }
 
+// Estado local de la vista Entrenar: true = editor abierto, false = lista
+VistaEntrenar.modoEditor = false;
 document.addEventListener('DOMContentLoaded', init);

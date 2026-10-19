@@ -20,21 +20,23 @@
     <!-- ============ VISTA: ENTRENAR ============ -->
     <section id="view-entrenar" class="view active" data-view="entrenar">
 
-      <!-- Panel: iniciar entrenamiento -->
+      <!-- Panel: entrenamientos (pendiente + rutinas) -->
       <div id="panel-iniciar">
+        <div id="draft-pendiente"></div>
         <p class="hint">Selecciona una rutina o comienza desde cero.</p>
         <div id="lista-rutinas-inicio" class="card-list"></div>
-        <button id="btn-iniciar-vacio" class="btn btn-primary">+ Entrenamiento en blanco</button>
+        <button id="btn-iniciar-vacio" class="btn btn-primary">+ Nuevo entrenamiento en blanco</button>
       </div>
 
-      <!-- Panel: sesión activa -->
+      <!-- Panel: editor de progreso -->
       <div id="panel-activo" class="hidden">
         <div class="session-meta">
           <span id="activo-fecha" class="chip"></span>
-          <span id="activo-tiempo" class="chip chip-accent">0 min</span>
+          <span id="activo-estado" class="chip chip-accent">En edición</span>
         </div>
         <div id="lista-ejercicios-activos" class="card-list"></div>
         <button id="btn-agregar-ejercicio-activo" class="btn btn-secondary">+ Agregar ejercicio</button>
+        <button id="btn-guardar" class="btn btn-primary">Guardar</button>
         <button id="btn-finalizar" class="btn btn-danger">Finalizar entrenamiento</button>
       </div>
 
@@ -58,7 +60,10 @@
       </div>
       <p class="hint">Selecciona los ejercicios en el orden deseado:</p>
       <div id="selector-ejercicios-rutina" class="check-list"></div>
-      <button id="btn-crear-rutina" class="btn btn-primary">Crear rutina</button>
+      <div class="form-actions">
+        <button id="btn-cancelar-rutina" class="btn btn-ghost hidden">Cancelar</button>
+        <button id="btn-crear-rutina" class="btn btn-primary">Crear rutina</button>
+      </div>
       <p id="error-rutina" class="error hidden"></p>
       <div id="lista-rutinas" class="card-list"></div>
     </section>

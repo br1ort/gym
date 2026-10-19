@@ -219,6 +219,16 @@ h2 {
   align-items: center;
 }
 
+.form-actions {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.form-actions .btn {
+  flex: 1;
+}
+
 /* ============ Cards / listas ============ */
 .card-list {
   display: flex;
@@ -236,6 +246,15 @@ h2 {
 
 .card + .card {
   margin-top: 10px;
+}
+
+#draft-pendiente {
+  margin-bottom: 16px;
+}
+
+.card-pendiente {
+  border-color: var(--accent);
+  background: rgba(61, 220, 132, 0.06);
 }
 
 .card-title {
@@ -331,11 +350,39 @@ h2 {
 }
 
 .series-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 1fr 44px 44px;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.series-field {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  border-top: 1px solid var(--border);
+  gap: 4px;
+  min-width: 0;
+}
+
+.series-field .input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+}
+
+.series-unit {
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.series-rest {
+  grid-column: 2 / 6;
+}
+
+.series-rest .input {
+  max-width: 90px;
 }
 
 .series-num {
