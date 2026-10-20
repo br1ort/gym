@@ -45,7 +45,7 @@
  | - numeroSerie: Int|           | - fecha: Date         |
  | - peso: Float     | *       1 | - duracionMinutos: Int|
  | - repeticiones:Int|-----------| - notas: String       |
- | - completada: Bool|           | - ejerciciosRealizados|
+ | - descanso: Int   |           | - ejerciciosRealizados|
  +-------------------+           |   : List<Serie>       |
                                  +-----------------------+
                                              |

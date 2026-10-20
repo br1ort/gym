@@ -30,13 +30,12 @@ class Rutina {
 }
 
 class Serie {
-  constructor({ id, numeroSerie, peso = 0, repeticiones = 0, descanso = 0, completada = false }) {
+  constructor({ id, numeroSerie, peso = 0, repeticiones = 0, descanso = 0 }) {
     this.id = id || generarId();
     this.numeroSerie = numeroSerie;
     this.peso = peso;
     this.repeticiones = repeticiones;
     this.descanso = descanso;
-    this.completada = completada;
   }
 }
 
@@ -250,6 +249,154 @@ const Modal = {
    SECCIÓN E — Lógica por vista
    ============================================================ */
 
+/* ---------- E0: Temporizador de descanso (uno por ejercicio) ---------- */
+
+const DescansoTimer = {
+  ejercicioIdx: null,
+  restante: 0,
+  inicial: 0,
+  corriendo: false,
+  terminado: false,
+  intervalId: null,
+
+  /** Segundos de descanso de la última serie del ejercicio (0 si no hay series). */
+  descansoDe(idx) {
+    const ej = estado.activo?.ejerciciosRealizados[idx];
+    if (!ej || ej.series.length === 0) return 0;
+    return Math.max(0, Math.floor(Number(ej.series[ej.series.length - 1].descanso) || 0));
+  },
+
+  formatear(seg) {
+    const m = Math.floor(seg / 60);
+    const s = seg % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  },
+
+  alternar(idx) {
+    if (this.corriendo && this.ejercicioIdx === idx) this.pausar();
+    else this.iniciar(idx);
+  },
+
+  iniciar(idx) {
+    if (this.corriendo) this.pausar();
+    if (this.ejercicioIdx !== idx || this.terminado || this.restante <= 0) {
+      this.ejercicioIdx = idx;
+      this.inicial = this.descansoDe(idx);
+      this.restante = this.inicial;
+      this.terminado = false;
+    }
+    if (this.restante <= 0) {
+      this.actualizarDOM();
+      UI.toast('Configura un descanso mayor a 0 s.');
+      return;
+    }
+    this.corriendo = true;
+    this.intervalId = setInterval(() => this.tick(), 1000);
+    this.actualizarDOM();
+  },
+
+  pausar() {
+    clearInterval(this.intervalId);
+    this.intervalId = null;
+    this.corriendo = false;
+    this.actualizarDOM();
+  },
+
+  reiniciar(idx) {
+    clearInterval(this.intervalId);
+    this.intervalId = null;
+    this.corriendo = false;
+    this.ejercicioIdx = idx;
+    this.inicial = this.descansoDe(idx);
+    this.restante = this.inicial;
+    this.terminado = false;
+    this.actualizarDOM();
+  },
+
+  detener() {
+    clearInterval(this.intervalId);
+    this.intervalId = null;
+    this.corriendo = false;
+    this.ejercicioIdx = null;
+    this.restante = 0;
+    this.inicial = 0;
+    this.terminado = false;
+  },
+
+  tick() {
+    this.restante--;
+    if (this.restante <= 0) {
+      this.restante = 0;
+      this.corriendo = false;
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+      this.terminado = true;
+      this.beep();
+    }
+    this.actualizarDOM();
+  },
+
+  /** Sincroniza el tiempo con el descanso de la serie editada (si su timer no corre). */
+  resincronizar(serieId) {
+    const idx = estado.activo?.ejerciciosRealizados.findIndex((ej) =>
+      ej.series.some((s) => s.id === serieId)
+    );
+    if (idx === undefined || idx === -1) return;
+    if (this.corriendo && this.ejercicioIdx === idx) return;
+    if (this.ejercicioIdx === idx) {
+      this.inicial = this.descansoDe(idx);
+      this.restante = this.inicial;
+      this.terminado = false;
+    }
+    this.actualizarDOM(idx);
+  },
+
+  /** Re-sincroniza los nodos del DOM tras un re-render de la vista. */
+  adjuntar() {
+    if (this.ejercicioIdx === null) return;
+    this.actualizarDOM();
+  },
+
+  actualizarDOM(idxOverride) {
+    const cont = document.getElementById('lista-ejercicios-activos');
+    if (!cont) return;
+    const idx = idxOverride ?? this.ejercicioIdx;
+    if (idx === null || idx === undefined) return;
+    const block = cont.querySelector(`[data-timer-idx="${idx}"]`);
+    if (!block) return;
+    const display = block.querySelector('.rest-timer-display');
+    if (!display) return;
+    const activo = this.ejercicioIdx === idx;
+    display.textContent = this.formatear(activo ? this.restante : this.descansoDe(idx));
+    block.classList.toggle('finished', activo && this.terminado);
+    const btn = block.querySelector('[data-timer-toggle]');
+    if (btn) btn.textContent = activo && this.corriendo ? '⏸' : '▶';
+  },
+
+  /** Beep de fin de descanso con Web Audio API (sin assets, funciona offline). */
+  beep() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.type = 'sine';
+      o.frequency.value = 880;
+      const t = ctx.currentTime;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+      o.start(t);
+      o.stop(t + 0.55);
+      o.onended = () => ctx.close();
+    } catch {
+      /* audio no disponible */
+    }
+  },
+};
+
 /* ---------- E1: Vista Entrenar ---------- */
 
 const VistaEntrenar = {
@@ -357,6 +504,7 @@ const VistaEntrenar = {
   },
 
   crearBorrador(ejerciciosRealizados) {
+    DescansoTimer.detener();
     estado.activo = new Entrenamiento({ ejerciciosRealizados });
     this.modoEditor = true;
     StorageManager.setActivo(estado.activo);
@@ -366,6 +514,7 @@ const VistaEntrenar = {
   /** Guarda el borrador y vuelve a la lista de entrenamientos. */
   guardar() {
     if (!estado.activo) return;
+    DescansoTimer.detener();
     StorageManager.setActivo(estado.activo);
     this.modoEditor = false;
     this.render();
@@ -375,7 +524,6 @@ const VistaEntrenar = {
   /**
    * Devuelve las series del último entrenamiento finalizado que incluyó
    * este ejercicio, como valores por defecto para repetir la sesión.
-   * Las series se crean sin marcar como completadas.
    */
   seriesDesdeHistorial(ejercicioId) {
     const ordenados = [...estado.historial].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
@@ -389,7 +537,6 @@ const VistaEntrenar = {
               peso: s.peso,
               repeticiones: s.repeticiones,
               descanso: s.descanso ?? 0,
-              completada: false,
             })
         );
       }
@@ -408,23 +555,32 @@ const VistaEntrenar = {
       return;
     }
     cont.innerHTML = a.ejerciciosRealizados
-      .map((ej, idx) => {
+      .map((ej, idx, arr) => {
+        const min = !!ej.minimizado;
+        const ultima = ej.series[ej.series.length - 1];
+        const resumen =
+          ej.series.length === 0
+            ? 'Sin series'
+            : `${ej.series.length} serie(s) · ${ultima.peso} kg × ${ultima.repeticiones} reps`;
         const seriesHTML = ej.series
           .map(
             (s) => `
-            <div class="series-row ${s.completada ? 'completada' : ''}" data-serie="${s.id}">
+            <div class="series-row" data-serie="${s.id}">
               <span class="series-num">${s.numeroSerie}</span>
               <label class="series-field">
                 <input class="input input-num" type="number" inputmode="decimal" min="0" step="0.5"
                   value="${s.peso}" data-campo="peso" data-serie-id="${s.id}" aria-label="Peso kg">
                 <span class="series-unit">kg</span>
               </label>
-              <label class="series-field">
-                <input class="input input-num" type="number" inputmode="numeric" min="0" step="1"
-                  value="${s.repeticiones}" data-campo="repeticiones" data-serie-id="${s.id}" aria-label="Repeticiones">
+              <div class="reps-cell">
+                <div class="reps-stepper">
+                  <button class="stepper-btn" type="button" data-reps-dec="${s.id}" aria-label="Restar una repetición">−</button>
+                  <input class="input input-num" type="number" inputmode="numeric" min="0" step="1"
+                    value="${s.repeticiones}" data-campo="repeticiones" data-serie-id="${s.id}" aria-label="Repeticiones">
+                  <button class="stepper-btn" type="button" data-reps-inc="${s.id}" aria-label="Sumar una repetición">+</button>
+                </div>
                 <span class="series-unit">reps</span>
-              </label>
-              <button class="series-check ${s.completada ? 'checked' : ''}" data-toggle-serie="${s.id}" aria-label="Marcar completada">✓</button>
+              </div>
               <button class="series-eliminar" data-eliminar-serie="${s.id}" aria-label="Eliminar serie">✕</button>
               <label class="series-field series-rest">
                 <span class="series-unit">Descanso</span>
@@ -436,16 +592,56 @@ const VistaEntrenar = {
           )
           .join('');
         const grupo = estado.ejercicios.find((e) => e.id === ej.ejercicioId)?.grupoMuscular || '';
+        const mostrarTimer = !min || DescansoTimer.ejercicioIdx === idx;
         return `
-          <div class="exercise-block" data-ejercicio-idx="${idx}">
-            <div class="card-title">
-              <span>${escapeHTML(ej.nombre)}${grupo ? ` <span class="chip">${escapeHTML(grupo)}</span>` : ''}</span>
+          <div class="exercise-block ${min ? 'minimized' : ''}" data-ejercicio-idx="${idx}">
+            <div class="card-title exercise-head ${min ? 'min' : ''}">
+              <button class="exercise-toggle" type="button" data-toggle-min="${idx}"
+                aria-label="Minimizar o expandir el ejercicio" aria-expanded="${!min}">
+                <span class="exercise-chevron">▾</span>
+                <span>${escapeHTML(ej.nombre)}${grupo ? ` <span class="chip">${escapeHTML(grupo)}</span>` : ''}</span>
+              </button>
+              <span class="exercise-moves">
+                <button class="move-btn" type="button" data-ej-subir="${idx}" ${idx === 0 ? 'disabled' : ''} aria-label="Subir ejercicio">↑</button>
+                <button class="move-btn" type="button" data-ej-bajar="${idx}" ${idx === arr.length - 1 ? 'disabled' : ''} aria-label="Bajar ejercicio">↓</button>
+              </span>
             </div>
-            ${seriesHTML}
-            <button class="btn-add-serie" data-add-serie="${idx}">+ Agregar serie</button>
+            ${min ? `<div class="exercise-summary">${escapeHTML(resumen)}</div>` : seriesHTML}
+            ${mostrarTimer
+              ? `<div class="rest-timer" data-timer-idx="${idx}">
+              <span class="rest-timer-label">Descanso</span>
+              <span class="rest-timer-display">${DescansoTimer.formatear(DescansoTimer.descansoDe(idx))}</span>
+              <button class="rest-timer-btn" type="button" data-timer-toggle="${idx}" aria-label="Iniciar o pausar el descanso">▶</button>
+              <button class="rest-timer-reset" type="button" data-timer-reset="${idx}" aria-label="Reiniciar el descanso">↺</button>
+            </div>`
+              : ''}
+            ${min ? '' : `<button class="btn-add-serie" data-add-serie="${idx}">+ Agregar serie</button>`}
           </div>`;
       })
       .join('');
+    DescansoTimer.adjuntar();
+  },
+
+  /** Minimiza/expande un bloque de ejercicio (estado persistido en el borrador). */
+  alternarMinimizado(idx) {
+    const ej = estado.activo?.ejerciciosRealizados[idx];
+    if (!ej) return;
+    ej.minimizado = !ej.minimizado;
+    StorageManager.setActivo(estado.activo);
+    this.renderActivo();
+  },
+
+  /** Mueve un ejercicio arriba/abajo dentro del entrenamiento activo. */
+  moverEjercicio(idx, dir) {
+    const arr = estado.activo?.ejerciciosRealizados;
+    if (!arr) return;
+    const j = dir === 'subir' ? idx - 1 : idx + 1;
+    if (j < 0 || j >= arr.length) return;
+    [arr[idx], arr[j]] = [arr[j], arr[idx]];
+    if (DescansoTimer.ejercicioIdx === idx) DescansoTimer.ejercicioIdx = j;
+    else if (DescansoTimer.ejercicioIdx === j) DescansoTimer.ejercicioIdx = idx;
+    StorageManager.setActivo(estado.activo);
+    this.renderActivo();
   },
 
   agregarEjercicio() {
@@ -504,13 +700,18 @@ const VistaEntrenar = {
     }
   },
 
-  toggleSerie(serieId) {
+  ajustarReps(serieId, delta) {
     for (const ej of estado.activo.ejerciciosRealizados) {
       const s = ej.series.find((x) => x.id === serieId);
       if (s) {
-        s.completada = !s.completada;
+        const n = Math.max(0, (Number(s.repeticiones) || 0) + delta);
+        if (!Validaciones.numeroNoNegativo(n)) return;
+        s.repeticiones = n;
         StorageManager.setActivo(estado.activo);
-        this.renderActivo();
+        const inp = document.querySelector(
+          `#lista-ejercicios-activos input[data-campo="repeticiones"][data-serie-id="${serieId}"]`
+        );
+        if (inp) inp.value = n;
         return;
       }
     }
@@ -544,6 +745,7 @@ const VistaEntrenar = {
         ent.duracionMinutos = 0;
         delete ent.fechaInicio;
 
+        DescansoTimer.detener();
         estado.historial.unshift(ent);
         estado.historial.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
         StorageManager.guardarHistorial(estado.historial);
@@ -619,6 +821,7 @@ const VistaEjercicios = {
 
 const VistaRutinas = {
   seleccionados: [], // ids en orden de selección
+  editandoId: null, // id de la rutina en edición, o null
 
   render() {
     // Selector de ejercicios
@@ -640,7 +843,41 @@ const VistaRutinas = {
         .join('');
     }
 
-    // Botón Cancelar visible solo mientras hay un borrador en curso
+    // Lista de orden (reordenable) de la selección actual
+    const ordenCont = $('#orden-rutina');
+    const items = this.seleccionados
+      .map((id) => estado.ejercicios.find((e) => e.id === id))
+      .filter(Boolean);
+    ordenCont.innerHTML = items.length
+      ? `<p class="hint">Orden en la rutina:</p>` +
+        items
+          .map(
+            (e, i) => `
+          <div class="orden-item">
+            <span class="orden-num">${i + 1}</span>
+            <span class="orden-nombre">${escapeHTML(e.nombre)}</span>
+            <button class="move-btn" type="button" data-orden-subir="${e.id}" ${i === 0 ? 'disabled' : ''} aria-label="Subir ejercicio">↑</button>
+            <button class="move-btn" type="button" data-orden-bajar="${e.id}" ${i === items.length - 1 ? 'disabled' : ''} aria-label="Bajar ejercicio">↓</button>
+          </div>`
+          )
+          .join('')
+      : '';
+
+    // Formulario: texto según modo crear/editar
+    const rutinaEditando = this.editandoId ? estado.rutinas.find((r) => r.id === this.editandoId) : null;
+    if (this.editandoId && !rutinaEditando) {
+      this.editandoId = null; // la rutina fue eliminada mientras tanto
+      this.seleccionados = [];
+    }
+    const hint = $('#hint-rutinas');
+    if (hint) {
+      hint.textContent = rutinaEditando
+        ? `Editando "${rutinaEditando.nombre}" — reordena con ↑↓ y guarda los cambios.`
+        : 'Selecciona los ejercicios en el orden deseado:';
+    }
+    $('#btn-crear-rutina').textContent = rutinaEditando ? 'Guardar cambios' : 'Crear rutina';
+
+    // Botón Cancelar visible solo mientras hay un borrador o edición en curso
     $('#btn-cancelar-rutina').classList.toggle('hidden', !this.hayBorrador());
 
     // Lista de rutinas
@@ -659,7 +896,10 @@ const VistaRutinas = {
           <div class="card">
             <div class="card-title">
               <span>${escapeHTML(r.nombre)}</span>
-              <button class="btn btn-danger btn-small" data-eliminar-rutina="${r.id}">Eliminar</button>
+              <span class="card-actions">
+                <button class="btn btn-ghost btn-small" data-editar-rutina="${r.id}">Editar</button>
+                <button class="btn btn-danger btn-small" data-eliminar-rutina="${r.id}">Eliminar</button>
+              </span>
             </div>
             <div class="card-sub">${escapeHTML(nombres || 'Sin ejercicios')}</div>
           </div>`;
@@ -676,14 +916,41 @@ const VistaRutinas = {
     this.render();
   },
 
-  /** ¿Hay un borrador de rutina en curso (nombre o ejercicios seleccionados)? */
+  /** Mueve un ejercicio de la selección arriba/abajo en el orden de la rutina. */
+  moverSeleccionado(id, dir) {
+    const i = this.seleccionados.indexOf(id);
+    const j = dir === 'subir' ? i - 1 : i + 1;
+    if (i === -1 || j < 0 || j >= this.seleccionados.length) return;
+    [this.seleccionados[i], this.seleccionados[j]] = [this.seleccionados[j], this.seleccionados[i]];
+    this.render();
+  },
+
+  /** Carga una rutina existente en el formulario para editarla. */
+  editar(id) {
+    const r = estado.rutinas.find((x) => x.id === id);
+    if (!r) return;
+    this.editandoId = id;
+    this.seleccionados = r.ejercicioIds.filter((eid) => estado.ejercicios.some((e) => e.id === eid));
+    const input = $('#input-nombre-rutina');
+    input.value = r.nombre;
+    $('#error-rutina').classList.add('hidden');
+    this.render();
+    input.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  },
+
+  /** ¿Hay un borrador de rutina en curso (nombre, ejercicios o edición)? */
   hayBorrador() {
-    return this.seleccionados.length > 0 || ($('#input-nombre-rutina')?.value?.trim().length ?? 0) > 0;
+    return (
+      this.editandoId !== null ||
+      this.seleccionados.length > 0 ||
+      ($('#input-nombre-rutina')?.value?.trim().length ?? 0) > 0
+    );
   },
 
   /** Descarta el borrador actual y limpia el formulario (volver atrás). */
   cancelar() {
     this.seleccionados = [];
+    this.editandoId = null;
     const input = $('#input-nombre-rutina');
     if (input) input.value = '';
     $('#error-rutina').classList.add('hidden');
@@ -703,8 +970,18 @@ const VistaRutinas = {
       return;
     }
     err.classList.add('hidden');
-    estado.rutinas.push(new Rutina({ nombre: nombre.trim(), ejercicioIds: [...this.seleccionados] }));
+    const ids = this.seleccionados.filter((eid) => estado.ejercicios.some((e) => e.id === eid));
+    if (this.editandoId) {
+      const r = estado.rutinas.find((x) => x.id === this.editandoId);
+      if (r) {
+        r.nombre = nombre.trim();
+        r.ejercicioIds = ids;
+      }
+    } else {
+      estado.rutinas.push(new Rutina({ nombre: nombre.trim(), ejercicioIds: ids }));
+    }
     StorageManager.guardarRutinas(estado.rutinas);
+    this.editandoId = null;
     this.seleccionados = [];
     $('#input-nombre-rutina').value = '';
     this.render();
@@ -759,7 +1036,6 @@ const VistaHistorial = {
               <span>Serie ${s.numeroSerie}</span>
               <span><strong>${s.peso}</strong> kg × <strong>${s.repeticiones}</strong> reps</span>
               <span>· ${s.descanso ?? 0}s descanso</span>
-              <span>${s.completada ? '✔' : ''}</span>
             </div>`
           )
           .join('');
@@ -854,6 +1130,7 @@ const VistaAjustes = {
 
 const UI = {
   irA(vista) {
+    if (estado.vistaActual === 'entrenar' && vista !== 'entrenar') DescansoTimer.detener();
     estado.vistaActual = vista;
     $$('.view').forEach((v) => v.classList.toggle('active', v.dataset.view === vista));
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.target === vista));
@@ -935,15 +1212,29 @@ function init() {
   $('#lista-ejercicios-activos').addEventListener('click', (ev) => {
     const add = ev.target.closest('[data-add-serie]');
     if (add) return VistaEntrenar.agregarSerie(Number(add.dataset.addSerie));
-    const toggle = ev.target.closest('[data-toggle-serie]');
-    if (toggle) return VistaEntrenar.toggleSerie(toggle.dataset.toggleSerie);
     const del = ev.target.closest('[data-eliminar-serie]');
     if (del) return VistaEntrenar.eliminarSerie(del.dataset.eliminarSerie);
+    const dec = ev.target.closest('[data-reps-dec]');
+    if (dec) return VistaEntrenar.ajustarReps(dec.dataset.repsDec, -1);
+    const inc = ev.target.closest('[data-reps-inc]');
+    if (inc) return VistaEntrenar.ajustarReps(inc.dataset.repsInc, 1);
+    const toggle = ev.target.closest('[data-timer-toggle]');
+    if (toggle) return DescansoTimer.alternar(Number(toggle.dataset.timerToggle));
+    const reset = ev.target.closest('[data-timer-reset]');
+    if (reset) return DescansoTimer.reiniciar(Number(reset.dataset.timerReset));
+    const min = ev.target.closest('[data-toggle-min]');
+    if (min) return VistaEntrenar.alternarMinimizado(Number(min.dataset.toggleMin));
+    const subir = ev.target.closest('[data-ej-subir]');
+    if (subir) return VistaEntrenar.moverEjercicio(Number(subir.dataset.ejSubir), 'subir');
+    const bajar = ev.target.closest('[data-ej-bajar]');
+    if (bajar) return VistaEntrenar.moverEjercicio(Number(bajar.dataset.ejBajar), 'bajar');
   });
 
   $('#lista-ejercicios-activos').addEventListener('change', (ev) => {
     const inp = ev.target.closest('[data-campo]');
-    if (inp) VistaEntrenar.actualizarSerie(inp.dataset.serieId, inp.dataset.campo, inp.value);
+    if (!inp) return;
+    VistaEntrenar.actualizarSerie(inp.dataset.serieId, inp.dataset.campo, inp.value);
+    if (inp.dataset.campo === 'descanso') DescansoTimer.resincronizar(inp.dataset.serieId);
   });
 
   /* --- Ejercicios --- */
@@ -968,6 +1259,12 @@ function init() {
     const chk = ev.target.closest('[data-check-ejercicio]');
     if (chk) VistaRutinas.toggleEjercicio(chk.dataset.checkEjercicio, chk.checked);
   });
+  $('#orden-rutina').addEventListener('click', (ev) => {
+    const subir = ev.target.closest('[data-orden-subir]');
+    if (subir) return VistaRutinas.moverSeleccionado(subir.dataset.ordenSubir, 'subir');
+    const bajar = ev.target.closest('[data-orden-bajar]');
+    if (bajar) return VistaRutinas.moverSeleccionado(bajar.dataset.ordenBajar, 'bajar');
+  });
   $('#btn-crear-rutina').addEventListener('click', () => VistaRutinas.crear($('#input-nombre-rutina').value));
   $('#btn-cancelar-rutina').addEventListener('click', () => VistaRutinas.cancelar());
   $('#input-nombre-rutina').addEventListener('input', () => {
@@ -975,6 +1272,8 @@ function init() {
   });
 
   $('#lista-rutinas').addEventListener('click', (ev) => {
+    const editar = ev.target.closest('[data-editar-rutina]');
+    if (editar) return VistaRutinas.editar(editar.dataset.editarRutina);
     const btn = ev.target.closest('[data-eliminar-rutina]');
     if (btn) VistaRutinas.eliminar(btn.dataset.eliminarRutina);
   });
